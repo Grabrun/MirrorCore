@@ -1,0 +1,32 @@
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[project]
+name = "mirror-core"
+version = "0.1.0"
+description = "镜核 (Mirror Core) - 开源的、本地优先的 AI 虚拟伴侣系统"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+
+dependencies = [
+    "aiosqlite>=0.20",
+    "fastapi>=0.115",
+    "aiohttp>=3.10",
+    "uvicorn[standard]>=0.34",
+    "apscheduler>=3.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "httpx>=0.28",
+    "websockets>=14.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]

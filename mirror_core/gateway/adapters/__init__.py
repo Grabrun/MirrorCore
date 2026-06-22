@@ -1,0 +1,1 @@
+# Mirror Core - Channel Adapters
