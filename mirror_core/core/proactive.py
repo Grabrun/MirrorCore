@@ -203,14 +203,14 @@ class ProactiveManager:
                     val = milestones.value if hasattr(milestones, "value") else ""
                     if today in val:
                         return True
-        except Exception:
-            pass
+        except (ValueError, TypeError, AttributeError) as exc:
+            logger.debug("纪念日检查失败: %s", exc)
         return False
 
     async def _should_silence_concern(self, user_id: str) -> bool:
         """长期静默：超过阈值天数无互动。"""
         if not self._memory:
-            return not self._has_triggered_recently("silence_concern", days=7)
+            return False
 
         try:
             # 从记忆引擎获取最后互动时间
@@ -220,7 +220,8 @@ class ProactiveManager:
 
             silence_days = (_time.time() - last_active) / 86400
             return silence_days >= self._config.silence_threshold_days
-        except Exception:
+        except (ValueError, TypeError, AttributeError) as exc:
+            logger.debug("长期静默检测失败: %s", exc)
             return False
 
     def _should_night_metaphor(self, current_hour: int) -> bool:
@@ -332,10 +333,9 @@ class ProactiveManager:
         if not triggers or not self._bus:
             return
 
-        # 记录触发次数
+        # 记录触发次数（record_trigger 内部已更新 _today_triggered）
         for t in triggers:
             self.record_trigger(t)
-            self._today_triggered.add(t)
 
         event = BaseEvent(
             type=EventType.PROACTIVE_CHANCE,
