@@ -155,10 +155,13 @@ class TestSelectTagFromEmotion:
         assert tag in scanner.list_tags()
 
     def test_sad_emotion(self, scanner):
-        """低落情绪选中低落表情"""
+        """低落情绪选中低落或伤心表情"""
         emotion = EmotionalState(P=-0.7, A=0.2, D=-0.5, mood=-0.5)
         tag = scanner.select_tag_from_emotion(emotion)
-        assert tag == "低落"
+        # 加权随机可能选中低落的 8/10 或伤心的 2/10
+        assert tag in ("低落", "伤心"), f"预期低落或伤心, 实际={tag}"
+        tag = scanner.select_tag_from_emotion(emotion)
+        # 匹配 
 
     def test_no_emotion_random(self, scanner):
         """无情感时从所有标签中随机"""
