@@ -86,18 +86,29 @@ class Database:
         if self._conn:
             await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
 
+    # D-T05: sqlite-vec 可用性标志
+    _has_vec: bool = False
+
+    @property
+    def has_vec(self) -> bool:
+        """sqlite-vec 扩展是否可用。"""
+        return self._has_vec
+
     async def _try_create_vec0(self) -> None:
         """尝试创建 sqlite-vec 向量虚拟表（可选，失败时静默降级为 FTS5 纯文本检索）。"""
         if not self._conn:
+            self._has_vec = False
             return
         try:
             await self._conn.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS episodic_vec USING vec0(embedding FLOAT[768])"
             )
             await self._conn.commit()
-            logger.info("sqlite-vec 向量表已创建")
+            self._has_vec = True
+            logger.info("sqlite-vec 向量表已创建 (has_vec=True)")
         except Exception:
-            logger.info("sqlite-vec 不可用，降级为 FTS5 纯文本检索")
+            self._has_vec = False
+            logger.info("sqlite-vec 不可用，降级为 FTS5 纯文本检索 (has_vec=False)")
 
     # ---- 迁移系统 ----
 

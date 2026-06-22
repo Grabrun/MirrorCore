@@ -248,14 +248,12 @@ class TestSadPaths:
         assert "开心" in scanner.list_tags()
 
     def test_random_emote_distribution(self, scanner):
-        """随机选取使用 seed 固定，确保确定性"""
-        random.seed(42)
-        selected = set()
-        for _ in range(10):
+        """验证随机选取能返回文件（不依赖全局 seed）"""
+        from unittest.mock import patch
+        with patch("random.choice", return_value="happy1.png"):
             emote = scanner.get_random_emote("开心")
-            if emote:
-                selected.add(emote.path)
-        assert len(selected) >= 1
+            assert emote is not None
+            assert "happy1.png" in emote.path
 
     def test_image_extensions_set(self):
         """支持的扩展名集合"""
