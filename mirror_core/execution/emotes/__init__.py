@@ -14,7 +14,7 @@ import random
 import time as _time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from mirror_core.emotion.engine import (
     EMOTION_TAG_MAP,
@@ -51,6 +51,16 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 # TTL 缓存时长（秒）
 SCAN_CACHE_TTL = 60
+
+# MIME 类型映射
+MIME_TYPE_MAP = {
+    ".gif": "image/gif",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+}
 
 
 class LocalScanner(EmotePlugin):
@@ -125,16 +135,7 @@ class LocalScanner(EmotePlugin):
         chosen = random.choice(files)
         ext = os.path.splitext(chosen)[1].lower()
 
-        # MIME 类型映射
-        mime_map = {
-            ".gif": "image/gif",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".webp": "image/webp",
-            ".bmp": "image/bmp",
-        }
-        mime_type = mime_map.get(ext, "application/octet-stream")
+        mime_type = MIME_TYPE_MAP.get(ext, "application/octet-stream")
 
         return EmoteResult(
             path=os.path.join(self._root, tag, chosen),
