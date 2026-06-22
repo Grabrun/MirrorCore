@@ -11,7 +11,7 @@ import asyncio
 import functools
 import logging
 import time as _time
-from typing import Any, Callable, Optional, Tuple, Type, Union
+from typing import Any, Callable, Optional, Tuple, Type
 
 logger = logging.getLogger("mirror_core.infrastructure.exceptions")
 
@@ -122,14 +122,15 @@ class CircuitBreaker:
                     "熔断器打开: %d 次连续失败, 冷却 %ds",
                     self._failure_count, self._recovery_timeout,
                 )
-            if self._state == self.HALF_OPEN:
+            elif self._state == self.HALF_OPEN:
+                # 半开时试探失败，回到打开（F-001: 防止与上方 if 冲突）
                 self._state = self.OPEN
+                logger.debug("熔断器半开试探失败: 回到打开状态")
         else:
             self._failure_count = 0
             if self._state == self.HALF_OPEN:
                 self._state = self.CLOSED
                 logger.info("熔断器关闭: 试探请求成功")
-            self._state = self.CLOSED
         return None
 
     def reset(self) -> None:

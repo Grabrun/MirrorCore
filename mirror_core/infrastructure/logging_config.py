@@ -77,25 +77,19 @@ def setup_logging(
 
     if json_format:
         # JSON 格式输出 (生产环境)
-        processors = shared_processors + [
-            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-        ]
-        formatter = structlog.stdlib.ProcessorFormatter(
-            processors=[
-                structlog.processors.JSONRenderer(),
-            ],
-        )
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(formatter)
+        renderer = structlog.processors.JSONRenderer()
     else:
         # 彩色控制台输出 (开发环境)
-        processors = shared_processors + [
-            structlog.dev.ConsoleRenderer(),
-        ]
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(structlog.stdlib.ProcessorFormatter(
-            processor=structlog.dev.ConsoleRenderer(),
-        ))
+        renderer = structlog.dev.ConsoleRenderer()
+
+    processors = shared_processors + [
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+    ]
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processors=[renderer],
+    )
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(formatter)
 
     # 配置 root logger
     root_logger = logging.getLogger()

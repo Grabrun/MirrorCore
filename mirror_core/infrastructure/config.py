@@ -12,18 +12,15 @@ ConfigManager — 配置管理器 (D-T01)
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, Dict, List, Optional
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger("mirror_core.infrastructure.config")
-
-T = TypeVar("T", bound=BaseModel)
 
 # 敏感 Key 后缀（日志脱敏用）
 _SENSITIVE_SUFFIXES = ("key", "secret", "password", "token", "api_key", "api-key")
