@@ -12,7 +12,6 @@ B-T41: 每日频率限制 + 静音时段管理
 from __future__ import annotations
 
 import logging
-import math
 import random
 import time as _time
 from dataclasses import dataclass, field
@@ -113,8 +112,21 @@ class ProactiveManager:
         self._night_metaphor_count: int = 0
         self._last_metaphor_reset: int = -1
         self._last_mood: float = 0.0
+        # 当日已触发的类型集合（F-002: 实例变量，避免跨实例污染）
+        self._today_triggered: set = set()
 
     # ---- B-T40: 触发条件评估 ----
+
+    async def on_tick(self, event: BaseEvent) -> None:
+        """
+        定时器触发入口（G-001: 供 Scheduler 通过 SYSTEM_TICK 调用）。
+
+        Args:
+            event: SYSTEM_TICK 事件
+        """
+        triggers = await self.evaluate()
+        if triggers:
+            await self.publish_proactive_event(triggers)
 
     async def evaluate(self, user_id: str = "default") -> List[str]:
         """
@@ -139,12 +151,12 @@ class ProactiveManager:
 
         # 1. 早安 (06:00-10:00)
         if 6 <= current_hour <= 10:
-            if await self._should_good_morning(user_id):
+            if self._should_good_morning():
                 triggers.append("good_morning")
 
         # 2. 晚安 (21:00-23:00)
         if 21 <= current_hour <= 23:
-            if await self._should_good_night(user_id):
+            if self._should_good_night():
                 triggers.append("good_night")
 
         # 3. 纪念日
@@ -159,22 +171,20 @@ class ProactiveManager:
         if self._should_night_metaphor(current_hour):
             triggers.append("night_metaphor")
 
-        # 6. 心境好转
-        if await self._should_mood_improved(user_id):
-            triggers.append("mood_improved")
+        # 6. 心境好转（通过 evaluate_with_emotion 外部注入）
 
-        # 静音时段过滤 + 频率更新
+        # 静音时段过滤
         return self._filter_quiet_hours(triggers, current_hour)
 
     # ---- 各条件检查 ----
 
-    async def _should_good_morning(self, user_id: str) -> bool:
+    def _should_good_morning(self) -> bool:
         """早安问候：今天还没有发过早安。"""
-        return not self._has_triggered_today("good_morning", user_id)
+        return "good_morning" not in self._today_triggered
 
-    async def _should_good_night(self, user_id: str) -> bool:
+    def _should_good_night(self) -> bool:
         """晚安问候：今天还没有发过晚安。"""
-        return not self._has_triggered_today("good_night", user_id)
+        return "good_night" not in self._today_triggered
 
     async def _should_anniversary(self, user_id: str) -> bool:
         """纪念日：从事实记忆中检查关键日期。"""
@@ -226,11 +236,7 @@ class ProactiveManager:
 
         return random.random() < self._config.metaphor_base_probability
 
-    async def _should_mood_improved(self, user_id: str) -> bool:
-        """心境好转：从负面恢复到正常。"""
-        # 此方法需要外部注入当前情感状态（由调用方传递）
-        # 实际评估在 evaluate_with_emotion() 中进行
-        return False
+    # _should_mood_improved 已合并到 evaluate_with_emotion() 中
 
     # ---- B-T41: 静音时段 ----
 
@@ -290,10 +296,11 @@ class ProactiveManager:
     # ---- B-T41: 每日频率限制 ----
 
     def _check_daily_reset(self) -> None:
-        """检查是否跨天，跨天时重置计数。"""
+        """检查是否跨天，跨天时重置计数和当日追踪集合。"""
         today = _time.localtime().tm_yday
         if today != self._last_reset_day:
             self._daily_count = 0
+            self._today_triggered.clear()
             self._last_reset_day = today
 
     def _check_metaphor_reset(self) -> None:
@@ -306,9 +313,10 @@ class ProactiveManager:
     # ---- 计数更新 ----
 
     def record_trigger(self, trigger_type: str) -> None:
-        """记录一次触发（用于频率统计）。"""
+        """记录一次触发（频率统计 + 当日追踪）。"""
         self._check_daily_reset()
         self._daily_count += 1
+        self._today_triggered.add(trigger_type)
         if trigger_type == "night_metaphor":
             self._night_metaphor_count += 1
 
@@ -327,6 +335,7 @@ class ProactiveManager:
         # 记录触发次数
         for t in triggers:
             self.record_trigger(t)
+            self._today_triggered.add(t)
 
         event = BaseEvent(
             type=EventType.PROACTIVE_CHANCE,
@@ -375,20 +384,13 @@ class ProactiveManager:
             memories = await self._memory.retrieve(user_id, "", top_k=1)
             if memories:
                 return memories[0].timestamp
-        except Exception:
-            pass
+        except (ValueError, TypeError, AttributeError) as exc:
+            logger.debug("获取最后活跃时间失败: %s", exc)
         return None
 
-    def _has_triggered_today(self, trigger_type: str, user_id: str) -> bool:
-        """
-        检查今天是否已触发过指定类型（简化版：存在性检查）。
-        实际应查询数据库持久化记录，当前使用内存近似判断。
-        """
-        return False  # 简化：暂不实现持久化追踪
-
-    def _has_triggered_recently(self, trigger_type: str, days: int) -> bool:
-        """检查最近是否已触发过。"""
-        return False  # 简化
+    def _has_triggered_today(self, trigger_type: str) -> bool:
+        """检查今天是否已触发过指定类型（F-002: 使用内存 set 追踪）。"""
+        return trigger_type in self._today_triggered
 
     @staticmethod
     def _is_late_night(hour: int) -> bool:

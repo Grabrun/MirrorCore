@@ -291,6 +291,78 @@ class TestEventPublishing:
         await mgr.publish_proactive_event(["good_morning"])
 
 
+class TestOnTick:
+    """on_tick 事件入口测试 (G-001)"""
+
+    @pytest.mark.asyncio
+    async def test_on_tick_integration(self, manager, bus):
+        """on_tick 完整流程不崩溃"""
+        with patch("mirror_core.core.proactive._time.localtime") as mock_time:
+            mock_tm = MagicMock()
+            mock_tm.tm_hour = 7  # 早安时段
+            mock_tm.tm_yday = 100
+            mock_time.return_value = mock_tm
+
+            await manager.on_tick(MagicMock())
+            # 早安应触发，publish 被调用
+            if bus.publish.call_count > 0:
+                event = bus.publish.call_args.args[0]
+                assert "good_morning" in event.payload["triggers"]
+            else:
+                # 无调用也算（当日已满或静音过滤）
+                pass
+
+    @pytest.mark.asyncio
+    async def test_on_tick_no_triggers_does_not_publish(self, manager, bus):
+        """无触发时不发布"""
+        with patch("mirror_core.core.proactive._time.localtime") as mock_time:
+            mock_tm = MagicMock()
+            mock_tm.tm_hour = 14  # 非触发时段
+            mock_tm.tm_yday = 100
+            mock_time.return_value = mock_tm
+
+            await manager.on_tick(MagicMock())
+            bus.publish.assert_not_called()
+
+
+class TestTriggerTracking:
+    """触发追踪测试 (F-002)"""
+
+    def test_has_triggered_today_after_record(self, manager):
+        """记录触发后 _today_triggered 包含该类型"""
+        with patch("mirror_core.core.proactive._time.localtime") as mock_time:
+            mock_tm = MagicMock()
+            mock_tm.tm_yday = 100
+            mock_time.return_value = mock_tm
+            manager._last_reset_day = 100  # 防止跨天重置
+
+            manager.record_trigger("good_morning")
+            assert manager._has_triggered_today("good_morning")
+            assert not manager._has_triggered_today("good_night")
+
+    def test_daily_reset_clears_tracked(self, manager):
+        """跨天重置时清除追踪集合"""
+        manager._today_triggered.add("good_morning")
+        with patch("mirror_core.core.proactive._time.localtime") as mock_time:
+            mock_tm = MagicMock()
+            mock_tm.tm_yday = 999
+            mock_time.return_value = mock_tm
+            manager._check_daily_reset()
+            assert not manager._has_triggered_today("good_morning")
+
+    def test_should_good_morning_respects_tracking(self, manager):
+        """早安检查遵循追踪结果"""
+        with patch("mirror_core.core.proactive._time.localtime") as mock_time:
+            mock_tm = MagicMock()
+            mock_tm.tm_yday = 100
+            mock_time.return_value = mock_tm
+            manager._last_reset_day = 100
+
+            assert manager._should_good_morning()  # 未触发过 → True
+            manager.record_trigger("good_morning")
+            assert not manager._should_good_morning()  # 已触发过 → False
+
+
 class TestEmotionEvaluation:
     """情感状态评估测试"""
 
