@@ -21,6 +21,7 @@ from mirror_core.core.safety import (
     SafetyEngine,
     SafetyResult,
     SafetyVerdict,
+    _hash_preview,
 )
 
 
@@ -349,26 +350,19 @@ class TestHotReload:
         assert engine._anchors == new_anchors
 
     def test_update_high_risk_keywords(self, engine):
-        """更新高风险关键词"""
-        from mirror_core.core.safety import HIGH_RISK_KEYWORDS
-        original = dict(HIGH_RISK_KEYWORDS)
-        try:
-            engine.update_high_risk_keywords({"新词": "新回复"})
-            assert len(HIGH_RISK_KEYWORDS) == 1
-        finally:
-            # 恢复全局状态
-            engine.update_high_risk_keywords(original)
+        """更新高风险关键词（实例级，不影响其他实例）"""
+        engine.update_high_risk_keywords({"新词": "新回复"})
+        assert len(engine._high_risk_keywords) == 1
+        assert engine._high_risk_keywords["新词"] == "新回复"
+        # 验证模块级常量未被修改
+        assert "新词" not in HIGH_RISK_KEYWORDS
 
     def test_update_dependency_keywords(self, engine):
-        """更新依赖度关键词"""
-        from mirror_core.core.safety import DEPENDENCY_KEYWORDS
-        original = list(DEPENDENCY_KEYWORDS)
-        try:
-            engine.update_dependency_keywords(["新关键词"])
-            assert DEPENDENCY_KEYWORDS == ["新关键词"]
-        finally:
-            # 恢复全局状态
-            engine.update_dependency_keywords(original)
+        """更新依赖度关键词（实例级，不影响其他实例）"""
+        engine.update_dependency_keywords(["新关键词"])
+        assert engine._dependency_keywords == ["新关键词"]
+        # 验证模块级常量未被修改
+        assert "新关键词" not in DEPENDENCY_KEYWORDS
 
 
 class TestPersistence:
@@ -493,6 +487,32 @@ class TestLateNightCheck:
     def test_12pm_not(self, engine):
         """12 点不是深夜"""
         assert not engine._is_late_night(12)
+
+
+class TestHashPreview:
+    """哈希预览测试 (F-001: §4.1 日志合规)"""
+
+    def test_hash_consistent(self):
+        """相同输入产生相同哈希"""
+        h1 = _hash_preview("测试消息123")
+        h2 = _hash_preview("测试消息123")
+        assert h1 == h2
+
+    def test_hash_different(self):
+        """不同输入产生不同哈希"""
+        h1 = _hash_preview("消息A")
+        h2 = _hash_preview("消息B")
+        assert h1 != h2
+
+    def test_hash_length(self):
+        """默认哈希长度 8"""
+        assert len(_hash_preview("test")) == 8
+        assert len(_hash_preview("test", 16)) == 16
+
+    def test_hash_does_not_contain_original(self):
+        """哈希不应包含原文"""
+        h = _hash_preview("敏感内容123")
+        assert "敏感" not in h
 
 
 class TestSadPaths:

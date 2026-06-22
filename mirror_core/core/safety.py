@@ -27,13 +27,18 @@ B-T28: 安全规则 (关键词、锚点等) 从 safety.yaml 的热加载功能 (
 
 from __future__ import annotations
 
+import hashlib
 import logging
-import math
 import random
 import time as _time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+
+def _hash_preview(text: str, length: int = 8) -> str:
+    """返回输入文本的哈希摘要（替代原文日志，§4.1 合规）。"""
+    return hashlib.md5(text.encode("utf-8")).hexdigest()[:length]
 
 logger = logging.getLogger("mirror_core.core.safety")
 
@@ -53,7 +58,8 @@ HIGH_RISK_KEYWORDS: Dict[str, str] = {
     # 暴力/违法
     "杀了你": "我不能讨论或鼓励任何形式的暴力行为。请保持友善和尊重的交流。",
     "杀人": "我不能讨论或鼓励任何形式的暴力行为。请保持友善和尊重的交流。",
-    "炸": "我不能讨论或鼓励任何形式的暴力行为。请保持友善和尊重的交流。",
+    "炸弹": "我不能讨论或鼓励任何形式的暴力行为。请保持友善和尊重的交流。",
+    "炸毁": "我不能讨论或鼓励任何形式的暴力行为。请保持友善和尊重的交流。",
 }
 
 # 依赖度关键词语句
@@ -79,10 +85,7 @@ DEFAULT_ANCHORS: List[str] = [
     "（你的朋友和家人都很关心你，不要因为和我聊天就忽略了他们哦）",
 ]
 
-# 默认预设安全回复
-DEFAULT_SAFE_REPLY = (
-    "我刚才好像走神了…我们换个话题好吗？"
-)
+
 
 
 class SafetyVerdict(str, Enum):
@@ -137,6 +140,9 @@ class SafetyEngine:
     # 高频消息阈值: 24 小时内超过此数量
     HIGH_MESSAGE_COUNT = 50
 
+    # 实例级关键词字典（代替模块级 global，修复 F-002）
+    _CACHE_MAX_SIZE = 10000
+
     def __init__(self, db=None, anchors: Optional[List[str]] = None):
         """
         Args:
@@ -147,6 +153,9 @@ class SafetyEngine:
         self._anchors = anchors or DEFAULT_ANCHORS.copy()
         # 用户依赖度缓存: user_id -> (score, last_updated)
         self._dependency_cache: Dict[str, tuple] = {}
+        # 实例级关键词列表（B-T28: 可通过 update_* 方法热加载）
+        self._high_risk_keywords: Dict[str, str] = dict(HIGH_RISK_KEYWORDS)
+        self._dependency_keywords: List[str] = list(DEPENDENCY_KEYWORDS)
 
     # ---- B-T27: 输入评估 ----
 
@@ -170,15 +179,14 @@ class SafetyEngine:
 
         matched: List[str] = []
 
-        # 高优先级: 高风险关键词
-        for keyword, reply in HIGH_RISK_KEYWORDS.items():
+        # 高优先级: 高风险关键词（F-001: 日志仅输出哈希摘要，不输出原文）
+        for keyword, reply in self._high_risk_keywords.items():
             if keyword in text:
                 matched.append(keyword)
                 logger.warning(
-                    "高风险内容拦截: 命中关键词 '%s' (输入前%d字: '...%s')",
+                    "高风险内容拦截: 命中关键词 '%s' (输入hash=%s)",
                     keyword,
-                    min(20, len(text)),
-                    text[:20].replace("\n", " "),
+                    _hash_preview(text),
                 )
                 return SafetyResult(
                     verdict=SafetyVerdict.FLAGGED,
@@ -187,7 +195,7 @@ class SafetyEngine:
                 )
 
         # 中等优先级: 依赖度关键词
-        for keyword in DEPENDENCY_KEYWORDS:
+        for keyword in self._dependency_keywords:
             if keyword in text:
                 matched.append(keyword)
                 logger.debug("依赖关键词命中: '%s'", keyword)
@@ -234,7 +242,7 @@ class SafetyEngine:
 
         # 1. 依赖关键词匹配
         keyword_match_count = 0
-        for keyword in DEPENDENCY_KEYWORDS:
+        for keyword in self._dependency_keywords:
             if keyword in text:
                 keyword_match_count += 1
         if keyword_match_count > 0:
@@ -255,7 +263,14 @@ class SafetyEngine:
         # 截断到 [0, 1]
         smoothed = max(0.0, min(1.0, smoothed))
 
-        # 更新缓存 + 持久化
+        # 更新缓存（F-006: 限制缓存大小）+ 持久化
+        if len(self._dependency_cache) >= self._CACHE_MAX_SIZE:
+            # 移除最早的一个条目
+            oldest_key = min(
+                self._dependency_cache,
+                key=lambda k: self._dependency_cache[k][1],
+            )
+            del self._dependency_cache[oldest_key]
         self._dependency_cache[user_id] = (smoothed, _time.time())
         await self._persist_dependency(user_id, smoothed)
 
@@ -334,10 +349,9 @@ class SafetyEngine:
         B-T28: 当 D-T01 ConfigManager 支持 YAML 热加载后，
         可调用此方法无需重启更新关键词。
         """
-        global HIGH_RISK_KEYWORDS
-        HIGH_RISK_KEYWORDS.clear()
-        HIGH_RISK_KEYWORDS.update(keywords)
-        logger.info("高风险关键词已更新: %d 条", len(HIGH_RISK_KEYWORDS))
+        self._high_risk_keywords.clear()
+        self._high_risk_keywords.update(keywords)
+        logger.info("高风险关键词已更新: %d 条", len(self._high_risk_keywords))
 
     def update_dependency_keywords(self, keywords: List[str]) -> None:
         """
@@ -346,10 +360,9 @@ class SafetyEngine:
         B-T28: 当 D-T01 ConfigManager 支持 YAML 热加载后，
         可调用此方法无需重启更新关键词。
         """
-        global DEPENDENCY_KEYWORDS
-        DEPENDENCY_KEYWORDS.clear()
-        DEPENDENCY_KEYWORDS.extend(keywords)
-        logger.info("依赖度关键词已更新: %d 条", len(DEPENDENCY_KEYWORDS))
+        self._dependency_keywords.clear()
+        self._dependency_keywords.extend(keywords)
+        logger.info("依赖度关键词已更新: %d 条", len(self._dependency_keywords))
 
     # ---- 持久化 ----
 
@@ -379,8 +392,6 @@ class SafetyEngine:
                 return score
         except (ValueError, TypeError) as exc:
             logger.debug("依赖度加载失败: %s", exc)
-        except Exception:
-            pass
 
         return 0.0
 
