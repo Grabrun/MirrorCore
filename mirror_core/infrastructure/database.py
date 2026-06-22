@@ -257,4 +257,13 @@ MIGRATIONS: List[Tuple[int, str, List[str]]] = [
             """,
         ],
     ),
+    (
+        6,
+        "DB-T02 修正: 添加 companion_state 到 semantic_memory 表",
+        [
+            """
+            ALTER TABLE semantic_memory ADD COLUMN companion_state TEXT DEFAULT 'Normal'
+            """,
+        ],
+    ),
 ]

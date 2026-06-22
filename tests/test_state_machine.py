@@ -9,7 +9,8 @@
 - 边界场景
 """
 
-import time
+import os
+import tempfile
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -258,6 +259,13 @@ class TestCanTransitionTo:
         """从 Normal 不可达 Reflecting"""
         assert not sm.can_transition_to(CompanionState.REFLECTING)
 
+    def test_normal_can_reach_normal_via_maybe_suppress(self, sm):
+        """
+        从 Normal 可达 Normal（maybe_suppress 评估结果为 Normal 时）
+        修复 F-004: 验证 can_transition_to 正确处理动态评估的两种可能结果
+        """
+        assert sm.can_transition_to(CompanionState.NORMAL)
+
     @pytest.mark.asyncio
     async def test_suppressing_reaches_bursting(self, sm):
         """从 Suppressing 可达 Bursting"""
@@ -368,17 +376,16 @@ class TestPersistence:
         """状态变更后自动持久化"""
         await sm.transition(StateTransitionTrigger.EMOTION_CHANGED, suppression=0.5)
 
-        # 验证持久化写入（检查 SQL 中包含 INSERT OR REPLACE 关键词）
+        # 验证持久化写入（检查 SQL 中包含 INSERT INTO semantic_memory）
         call_args_list = [(c.args, c.kwargs) for c in db.execute.call_args_list]
-        sql_args = [args for args, _ in call_args_list]  # sql tuple + params tuple
+        sql_args = [args for args, _ in call_args_list]
         found = False
         for sql, params in sql_args:
-            if "INSERT OR REPLACE INTO fact_memory" in sql:
-                assert "default" in params or params[0] == "default"
-                assert CompanionState.SUPPRESSING.value in params
+            if "INSERT INTO semantic_memory" in sql:
+                assert "Suppressing" in params
                 found = True
                 break
-        assert found, "未找到持久化调用"
+        assert found, "未找到持久化调用 (semantic_memory)"
 
     @pytest.mark.asyncio
     async def test_restore_normal(self, sm, db):
@@ -390,7 +397,6 @@ class TestPersistence:
     @pytest.mark.asyncio
     async def test_restore_saved_state(self, sm, db):
         """从数据库恢复持久化状态"""
-        # 模拟数据库中有 "Bursting" 状态
         mock_row = MagicMock()
         mock_row.__getitem__.return_value = "Bursting"
         db.fetch_one.return_value = mock_row
@@ -420,3 +426,85 @@ class TestPersistence:
         sm = StateMachine()  # db=None
         await sm.transition(StateTransitionTrigger.EMOTION_CHANGED, suppression=0.5)
         assert sm.state == CompanionState.SUPPRESSING
+
+
+class TestRealDBPersistence:
+    """真实 SQLite 集成测试 (F-008)"""
+
+    @pytest.fixture
+    async def real_db(self):
+        """创建临时数据库并运行所有迁移"""
+        from mirror_core.infrastructure.database import Database
+        tmp = tempfile.mktemp(suffix=".db")
+        db = Database(path=tmp)
+        await db.initialize()
+        yield db
+        await db.close()
+        os.unlink(tmp)
+
+    @pytest.fixture
+    async def real_sm(self, real_db):
+        sm = StateMachine(bus=None, db=real_db)
+        await sm.restore()
+        return sm
+
+    @pytest.mark.asyncio
+    async def test_persist_and_restore_roundtrip(self, real_sm, real_db):
+        """持久化 → 恢复的完整往返"""
+        # 初始状态
+        assert real_sm.state == CompanionState.NORMAL
+
+        # 执行状态转换
+        await real_sm.transition(
+            StateTransitionTrigger.EMOTION_CHANGED,
+            suppression=0.5,
+        )
+        assert real_sm.state == CompanionState.SUPPRESSING
+
+        # 验证数据库中有数据
+        row = await real_db.fetch_one(
+            "SELECT companion_state FROM semantic_memory WHERE user_id=?",
+            ("default",),
+        )
+        assert row is not None
+        assert row["companion_state"] == "Suppressing"
+
+        # 创建新的状态机实例并恢复
+        sm2 = StateMachine(bus=None, db=real_db)
+        await sm2.restore()
+        assert sm2.state == CompanionState.SUPPRESSING
+
+    @pytest.mark.asyncio
+    async def test_multiple_transitions_persist(self, real_sm, real_db):
+        """多次转换后数据库持续更新"""
+        # Normal → Suppressing
+        await real_sm.transition(
+            StateTransitionTrigger.EMOTION_CHANGED, suppression=0.5
+        )
+        row1 = await real_db.fetch_one(
+            "SELECT companion_state FROM semantic_memory WHERE user_id=?",
+            ("default",),
+        )
+        assert row1["companion_state"] == "Suppressing"
+
+        # Suppressing → Bursting
+        await real_sm.transition(StateTransitionTrigger.BURST_TRIGGER)
+        row2 = await real_db.fetch_one(
+            "SELECT companion_state FROM semantic_memory WHERE user_id=?",
+            ("default",),
+        )
+        assert row2["companion_state"] == "Bursting"
+
+    @pytest.mark.asyncio
+    async def test_no_db_no_crash(self):
+        """没有数据库时完整操作不崩溃"""
+        sm = StateMachine(bus=None, db=None)
+        await sm.restore()
+        assert sm.state == CompanionState.NORMAL
+
+        await sm.transition(
+            StateTransitionTrigger.EMOTION_CHANGED, suppression=0.5
+        )
+        assert sm.state == CompanionState.SUPPRESSING
+
+        await sm.force_persist()  # 不应崩溃

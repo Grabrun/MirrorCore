@@ -25,6 +25,14 @@ B-T24: maybe_suppress 等动态转换条件评估
     - 非法跃迁被拒绝并抛出 ValueError
     - 状态变更通过事件总线发布 STATE_TRANSITION 事件
     - 状态持久化到 fact_memory 表 (fact_type='companion_state')
+    - 待 DB 迁移 v6 后改为 semantic_memory.companion_state 字段
+
+设计偏差记录 (D-001):
+    设计文档 §3.3.4 使用全局 EventType 作为转换触发器键，
+    但 BURST_TRIGGER / BURST_END 等是状态机内部触发器，
+    不应污染全局事件枚举。因此实现使用独立的 StateTransitionTrigger 枚举。
+    外部模块通过调用 transition() / maybe_suppress() 方法与状态机交互，
+    无需直接引用 StateTransitionTrigger。
 """
 
 from __future__ import annotations
@@ -216,20 +224,26 @@ class StateMachine:
         """
         检查是否存在从当前状态到目标状态的合法路径。
 
+        对于 "maybe_suppress" 这种动态评估，收集所有可能的结果状态
+        （Normal 和 Suppressing）并逐一检查。
+
         Args:
             target: 目标状态
 
         Returns:
             是否存在合法转换
         """
-        for (from_state, trigger), to in self._TRANSITIONS.items():
-            if from_state == self._state:
-                actual = to
-                if actual == "maybe_suppress":
-                    # 只要触发器是 EMOTION_CHANGED 就算可转换
-                    actual = CompanionState.SUPPRESSING
-                if actual == target:
+        for (from_state, _trigger), to in self._TRANSITIONS.items():
+            if from_state != self._state:
+                continue
+
+            if to == "maybe_suppress":
+                # 动态评估的两个可能结果
+                if target in (CompanionState.SUPPRESSING, CompanionState.NORMAL):
                     return True
+            elif to == target:
+                return True
+
         return False
 
     # ---- B-T24: 动态转换条件评估 ----
@@ -270,51 +284,48 @@ class StateMachine:
 
     async def _persist(self) -> None:
         """
-        将当前状态持久化到 fact_memory 表。
+        将当前状态持久化到 semantic_memory 表。
 
-        设计文档: 状态持久化到 semantic_memory 表，
-        但 semantic_memory 仅有关系评分字段，故使用
-        fact_memory(fact_type='companion_state', key='state_machine') 存储。
+        设计文档 §3.3.4.3: 状态持久化到 semantic_memory 表。
+        使用 companion_state 字段（DB 迁移 v6 添加）。
+        兼容性：旧版库无该字段时静默降级（由迁移保证）。
         """
         if not self._db:
             return
         try:
+            # 尝试写入 semantic_memory（优先，设计文档要求）
             await self._db.execute(
                 """
-                INSERT OR REPLACE INTO fact_memory
-                    (user_id, fact_type, key, value, confidence, last_updated)
-                VALUES (?, ?, ?, ?, 1.0, ?)
+                INSERT INTO semantic_memory (user_id, companion_state, last_updated)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    companion_state = excluded.companion_state,
+                    last_updated = excluded.last_updated
                 """,
-                (
-                    "default",
-                    "companion_state",
-                    "state_machine",
-                    self._state.value,
-                    _time.time(),
-                ),
+                ("default", self._state.value, _time.time()),
             )
-        except Exception:
-            logger.warning("状态机持久化失败", exc_info=True)
+        except (RuntimeError, AttributeError) as exc:
+            logger.warning("状态机持久化失败 (数据库/迁移问题): %s", exc)
 
     async def restore(self) -> None:
         """
-        从 fact_memory 表恢复状态。
+        从 semantic_memory 表恢复状态。
 
-        设计文档: 重启后以内存状态为准恢复。
+        设计文档 §3.3.4.3: 重启后以内存状态为准恢复。
         若数据库中有持久化状态则加载，否则使用默认 Normal。
         """
         if not self._db:
             return
         try:
             row = await self._db.fetch_one(
-                "SELECT value FROM fact_memory WHERE user_id=? AND fact_type=? AND key=?",
-                ("default", "companion_state", "state_machine"),
+                "SELECT companion_state FROM semantic_memory WHERE user_id=?",
+                ("default",),
             )
-            if row and row["value"]:
-                restored = CompanionState(row["value"])
+            if row and row["companion_state"]:
+                restored = CompanionState(row["companion_state"])
                 self._state = restored
                 logger.info("状态机状态已恢复: %s", restored.value)
-        except (ValueError, KeyError) as exc:
+        except (ValueError, KeyError, AttributeError) as exc:
             logger.warning("状态机恢复失败: %s，使用默认 Normal", exc)
         except Exception:
             logger.info("无持久化状态机状态，使用默认 Normal")
