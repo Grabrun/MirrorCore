@@ -141,9 +141,16 @@ class TestEvaluate:
     @pytest.mark.asyncio
     async def test_evaluate_max_per_day(self, mgr):
         """超过每日上限后不再触发"""
-        mgr._daily_count = 100  # 超过 max_per_day=5
-        triggers = await mgr.evaluate(user_id="u1")
-        assert triggers == []
+        from unittest.mock import patch, MagicMock
+        with patch("mirror_core.core.proactive._time.localtime") as mock_time:
+            mock_tm = MagicMock()
+            mock_tm.tm_hour = 14  # 非触发时段
+            mock_tm.tm_yday = 100
+            mock_time.return_value = mock_tm
+            mgr._daily_count = 100  # 超过 max_per_day=5
+            mgr._last_reset_day = 100  # 阻止重置
+            triggers = await mgr.evaluate(user_id="u1")
+            assert triggers == []
 
     @pytest.mark.asyncio
     async def test_night_metaphor_triggered(self, mgr):

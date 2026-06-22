@@ -75,15 +75,19 @@ class WebChatAdapter(ChannelAdapter):
         async def websocket_endpoint(websocket: WebSocket):
             # 从 query 参数获取 JWT 令牌
             token = websocket.query_params.get("token", "")
-            if not token or not jwt_secret:
-                await websocket.close(code=4001, reason="缺少认证令牌")
-                logger.warning("WebSocket 连接被拒绝：缺少令牌")
-                return
+            user_id = websocket.query_params.get("user_id", "")
 
-            user_id = verify_token(token, jwt_secret)
-            if not user_id:
-                await websocket.close(code=4001, reason="令牌无效或已过期")
-                logger.warning("WebSocket 连接被拒绝：令牌无效")
+            # F-003: 本地开发模式（无 jwt_secret）允许 ?user_id= 直连
+            if jwt_secret:
+                if not token:
+                    await websocket.close(code=4001, reason="缺少认证令牌")
+                    return
+                user_id = verify_token(token, jwt_secret)
+                if not user_id:
+                    await websocket.close(code=4001, reason="令牌无效或已过期")
+                    return
+            elif not user_id:
+                await websocket.close(code=4001, reason="缺少 user_id")
                 return
 
             await websocket.accept()

@@ -180,9 +180,7 @@ function addMsg(role, content, timestamp) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
 
-  // Parse inline emotes (image paths)
-  const html = content.replace(/\[img:(.+?)\]/g, '<img class="emote" src="$1" alt="emote">');
-  div.innerHTML = html;
+  // 使用 textContent 防 XSS（F-001），内联表情由后端替换后再发送
 
   if (timestamp) {
     const time = document.createElement('div');
@@ -241,7 +239,8 @@ async function loadHistory(initial = false) {
   }
 
   try {
-    const url = `${API_BASE}/api/v1/chat/history?session_id=${encodeURIComponent(sessionId)}&user_id=${encodeURIComponent(userId)}&limit=20`;
+    let url = `${API_BASE}/api/v1/chat/history?session_id=${encodeURIComponent(sessionId)}&user_id=${encodeURIComponent(userId)}&limit=20`;
+    if (before) url += `&before=${encodeURIComponent(before)}`;
     const resp = await fetch(url, token ? { headers: { 'Authorization': 'Bearer ' + token } } : {});
     if (!resp.ok) return;
     const data = await resp.json();
@@ -253,14 +252,15 @@ async function loadHistory(initial = false) {
     }
 
     // Store oldest timestamp for next page
-    // Render messages in reverse (oldest first)
+    // Render messages in reverse (oldest first) — 使用 textContent 防 XSS
     const fragment = document.createDocumentFragment();
     for (const m of msgs.reverse()) {
       const div = document.createElement('div');
       div.className = 'msg ' + (m.role === 'user' ? 'user' : 'bot');
-      div.innerHTML = m.content || '';
+      div.textContent = m.content || '';
       const time = document.createElement('div');
       time.className = 'time';
+      time.dataset.ts = m.timestamp;
       time.textContent = formatTime(m.timestamp);
       div.appendChild(time);
       fragment.appendChild(div);
