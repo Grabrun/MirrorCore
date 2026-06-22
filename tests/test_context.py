@@ -415,5 +415,74 @@ class TestContextAssembler:
         # mood=0.2 → "微晴"
         assert "微晴" in system_contents or "平静" in system_contents or "当前心境" in system_contents
 
+    @pytest.mark.asyncio
+    async def test_emotion_split_into_two_messages(self, assembler, sample_emotion):
+        """
+        设计合规：心境和情绪状态应为两条独立 system 消息（§3.3.3）
+        修复 F-003：验证分割后的消息结构
+        """
+        result = await assembler.assemble(
+            user_id="user1",
+            current_message="测试",
+            current_emotion=sample_emotion,
+        )
+        system_contents = [m["content"] for m in result.messages if m["role"] == "system"]
+        mood_msgs = [c for c in system_contents if c.startswith("[当前心境]")]
+        emotion_msgs = [c for c in system_contents if c.startswith("[情绪状态]")]
+        assert len(mood_msgs) == 1, "应有且仅有一条心境消息"
+        assert len(emotion_msgs) == 1, "应有且仅有一条情绪状态消息"
+        assert "[当前心境]" in mood_msgs[0]
+        assert "P=" in emotion_msgs[0]
+
+    @pytest.mark.asyncio
+    async def test_memory_invalid_json_sad_path(self, assembler):
+        """
+        Sad Path: 记忆 emotion_json 为非法 JSON 时不应崩溃
+        修复 F-001/F-009：防止 silent failure，但至少保证不抛异常
+        """
+        from mirror_core.memory.engine import EpisodicMemory
+        bad_mem = EpisodicMemory(
+            id="bad", user_id="u1", summary="坏数据",
+            emotion_json="这不是JSON{{{}}",  # 故意写坏的 JSON
+        )
+        # 不应抛异常
+        result = await assembler.assemble(
+            user_id="u1", current_message="hi",
+            retrieved_memories=[bad_mem],
+        )
+        assert result.memory_token_count >= 0
+
+    @pytest.mark.asyncio
+    async def test_memory_emotion_json_none(self, assembler):
+        """记忆 emotion_json 为 None 或空时安全处理"""
+        from mirror_core.memory.engine import EpisodicMemory
+        for bad_json in [None, "", "{}"]:
+            mem = EpisodicMemory(
+                id="m", user_id="u1", summary="test",
+                emotion_json=bad_json,
+            )
+            result = await assembler.assemble(
+                user_id="u1", current_message="hi",
+                retrieved_memories=[mem],
+            )
+            assert len(result.messages) >= 2
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_exceeds_budget(self, assembler):
+        """
+        Sad Path: 系统提示词超出 Token 预算
+        修复 F-010：确保不崩溃且标记截断
+        """
+        # 极小的 max_tokens，系统提示词本身就超出 70% 预算
+        result = await assembler.assemble(
+            user_id="u1",
+            current_message="hi",
+            max_tokens=1,  # budget=0, 系统提示词肯定超出
+        )
+        # 不能崩溃
+        assert result.token_count > 0
+        # 系统提示词本身超出，历史应该被截断
+        assert result.truncated
+
 
 

@@ -15,6 +15,7 @@ B-T22: 系统提示词、防火墙规则摘要等配置化内容的动态拼接
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass, field
@@ -103,9 +104,15 @@ class TokenCounter:
                     return
             # 尝试自动获取
             self._encoding = tiktoken.encoding_for_model(self._model)
-        except Exception:
+        except ImportError:
             logger.debug(
-                "tiktoken 不可用，将使用字符估算（安装 tiktoken 可提高精度）"
+                "tiktoken 未安装，将使用字符估算（pip install tiktoken 可提高精度）"
+            )
+            self._encoding = None
+        except (KeyError, ValueError, AttributeError) as exc:
+            logger.warning(
+                "tiktoken 编码初始化失败: %s，将使用字符估算",
+                exc,
             )
             self._encoding = None
 
@@ -236,7 +243,8 @@ def describe_mood(mood: float) -> str:
     for threshold, desc in MOOD_DESCRIPTIONS:
         if mood >= threshold:
             return desc
-    return "平静"
+    # 最后一个阈值 -1.0 已覆盖全范围，此处仅做类型安全兜底
+    return MOOD_DESCRIPTIONS[-1][1]
 
 
 def format_emotion_status(
@@ -256,8 +264,6 @@ def format_emotion_status(
     Returns:
         格式化的情感状态字符串
     """
-    from mirror_core.emotion.engine import EmotionalState
-
     base = (
         f"[情绪状态] P={state.P}, A={state.A}, D={state.D}, "
         f"心境={state.mood}, 压抑值={state.suppression}, "
@@ -320,7 +326,7 @@ class ContextAssembler:
         self,
         user_id: str,
         current_message: str,
-        retrieved_memories: Optional[List] = None,
+        retrieved_memories: Optional[List["EpisodicMemory"]] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         current_emotion: Optional["EmotionalState"] = None,  # type: ignore[name-defined]
         active_skills: Optional[List[str]] = None,
@@ -379,16 +385,18 @@ class ContextAssembler:
 
             budget_remaining -= memory_token_count
 
-        # 4. 情感状态
-        emotion_text = ""
+        # 4. 情感状态（设计文档 §3.3.3：心境与情绪状态分为两条独立 system 消息）
+        mood_text = ""
+        emotion_status_text = ""
+        emotion_tokens = 0
         if current_emotion:
-            mood_desc = describe_mood(current_emotion.mood)
-            emotion_status = format_emotion_status(current_emotion, expression_tags)
-            emotion_text = f"[当前心境] {mood_desc}\n{emotion_status}"
-            emotion_tokens = self._token_counter.count(emotion_text)
+            mood_text = f"[当前心境] {describe_mood(current_emotion.mood)}"
+            emotion_status_text = format_emotion_status(current_emotion, expression_tags)
+            emotion_tokens = (
+                self._token_counter.count(mood_text)
+                + self._token_counter.count(emotion_status_text)
+            )
             budget_remaining -= emotion_tokens
-        else:
-            emotion_tokens = 0
 
         # 5. 对话历史（带 Token 预算 + 轮数限制）
         history_truncated = False
@@ -422,9 +430,13 @@ class ContextAssembler:
             )
             messages.append({"role": "system", "content": memory_content})
 
-        # 情感状态（作为单独的 system 消息）
-        if emotion_text:
-            messages.append({"role": "system", "content": emotion_text})
+        # 心境消息（设计文档：独立 system 消息）
+        if mood_text:
+            messages.append({"role": "system", "content": mood_text})
+
+        # 情绪状态消息（设计文档：独立 system 消息）
+        if emotion_status_text:
+            messages.append({"role": "system", "content": emotion_status_text})
 
         # 对话历史
         messages.extend(selected_history)
@@ -440,6 +452,9 @@ class ContextAssembler:
             + history_token_count
             + self._token_counter.count(current_message)
         )
+        # 若系统提示词已超出预算且没有剩余空间，强制截断
+        if budget_remaining < 0:
+            history_truncated = True
 
         return AssembledContext(
             messages=messages,
@@ -463,7 +478,8 @@ class ContextAssembler:
             try:
                 from datetime import datetime
                 ts = datetime.fromtimestamp(mem.timestamp).strftime("%Y-%m-%d %H:%M")
-            except Exception:
+            except (ValueError, OSError) as exc:
+                logger.warning("记忆时间戳格式化失败: %s，使用原始值", exc)
                 ts = str(mem.timestamp)
 
         emotion_note = ""
@@ -475,8 +491,10 @@ class ContextAssembler:
                     if k in data:
                         parts.append(f"{k}={data[k]}")
                 emotion_note = f" (情绪快照: {', '.join(parts)})"
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError, KeyError) as exc:
+                logger.debug(
+                    "记忆情绪 JSON 解析失败: %s, id=%s", exc, getattr(mem, "id", "?")
+                )
 
         tags_note = f" [标签: {mem.tags}]" if getattr(mem, "tags", "") else ""
 
