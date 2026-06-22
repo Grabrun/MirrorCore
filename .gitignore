@@ -1,24 +1,22 @@
-# Virtual environment
-.venv/
-venv/
-.env/
 
-# Python cache
-__pycache__/
+data/
+# Data
+.DS_Store
+*.egg-info/
+.env/
+# IDE
+.idea/
+:memory:
+# OS
 *.pyc
+__pycache__/
 *.pyo
 .pytest_cache/
-*.egg-info/
-
-# IDE
-.vscode/
-.idea/
-*.swp
+# Python cache
 *.swo
-
-# OS
-.DS_Store
+*.swp
 Thumbs.db
-
-# Data
-data/
+.venv/
+venv/
+# Virtual environment
+.vscode/
