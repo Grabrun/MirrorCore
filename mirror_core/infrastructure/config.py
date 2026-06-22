@@ -59,6 +59,9 @@ class ProactiveConfigModel(BaseModel):
     physiological_metaphor: bool = True
     metaphor_base_probability: float = 0.25
     metaphor_max_per_night: int = 2
+    quiet_hours_exceptions: List[str] = Field(
+        default_factory=lambda: ["anniversary", "mood_improved", "night_metaphor"]
+    )
 
 
 class AIProviderConfig(BaseModel):
@@ -82,6 +85,16 @@ class SafetyConfigModel(BaseModel):
     anchors: List[str] = Field(default_factory=list)
 
 
+class WebChatConfig(BaseModel):
+    """webchat.yaml 配置模型 (D-T06: 补充 v1.1)"""
+    auth_mode: str = "token"
+    token_expire_days: int = 7
+    secret_file: str = "data/.jwt_secret"
+    cors_allowed_origins: List[str] = Field(
+        default_factory=lambda: ["http://127.0.0.1:8080", "http://localhost:8080"]
+    )
+
+
 class ChannelsConfig(BaseModel):
     """channels.yaml 配置模型"""
     enabled_adapters: List[str] = Field(default_factory=list)
@@ -94,6 +107,7 @@ class RootConfig(BaseModel):
     proactive: ProactiveConfigModel = Field(default_factory=ProactiveConfigModel)
     ai_provider: AIProviderConfig = Field(default_factory=AIProviderConfig)
     safety: SafetyConfigModel = Field(default_factory=SafetyConfigModel)
+    webchat: WebChatConfig = Field(default_factory=WebChatConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
 
 
@@ -118,6 +132,7 @@ class ConfigManager:
         "proactive": "proactive",
         "ai_provider": "ai_provider",
         "safety": "safety",
+        "webchat": "webchat",
         "channels": "channels",
     }
 

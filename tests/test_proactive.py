@@ -182,28 +182,36 @@ class TestEvaluate:
             assert "night_metaphor" not in triggers
 
     @pytest.mark.asyncio
-    async def test_silence_concern_detected(self, mgr, memory):
+    async def test_silence_concern_detected(self):
         """长期静默检测"""
+        from unittest.mock import MagicMock, AsyncMock, patch
+        bus = MagicMock()
+        memory = MagicMock()
+        memory.retrieve = AsyncMock(return_value=[])
+        memory.get_fact = AsyncMock(return_value=None)
+
+        mgr = ProactiveManager(bus=bus, memory_engine=memory)
+
         with patch("mirror_core.core.proactive._time.localtime") as mock_time:
             mock_tm = MagicMock()
             mock_tm.tm_hour = 14
             mock_tm.tm_yday = 100
             mock_time.return_value = mock_tm
 
-        # 模拟最后活跃时间在很久以前
-        old_time = time.time() - 86400 * 10  # 10 天前
+            # 模拟最后活跃时间在很久以前
+            old_time = time.time() - 86400 * 10  # 10 天前
 
-        # 模拟 retrieve 返回旧数据
-        from mirror_core.memory.engine import EpisodicMemory
-        memory.retrieve.return_value = [
-            EpisodicMemory(
-                id="old", user_id="u1", summary="old",
-                timestamp=old_time,
-            )
-        ]
+            # 模拟 retrieve 返回旧数据
+            from mirror_core.memory.engine import EpisodicMemory
+            memory.retrieve.return_value = [
+                EpisodicMemory(
+                    id="old", user_id="u1", summary="old",
+                    timestamp=old_time,
+                )
+            ]
 
-        triggers = await mgr.evaluate(user_id="u1")
-        assert "silence_concern" in triggers
+            triggers = await mgr.evaluate(user_id="u1")
+            assert "silence_concern" in triggers
 
 
 class TestDailyLimit:
