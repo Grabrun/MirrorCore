@@ -50,13 +50,6 @@ INVALID_SKILL = """\
 没有 frontmatter 分隔符的纯文本
 """
 
-EMPTY_FM_SKILL = """\
-
----
-
-body only
-"""
-
 YAML_ERROR_SKILL = """\
 ---
 invalid: [yaml: error

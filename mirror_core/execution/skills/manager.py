@@ -18,9 +18,9 @@ B-T36: 关键词+情绪双维度匹配评分
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-import time as _time
 from typing import Dict, List, Optional
 
 from mirror_core.emotion.engine import EmotionalState, _meets_condition
@@ -46,6 +46,8 @@ class SkillManager:
         self._skills: Dict[str, SkillMeta] = {}
         self._enable_watchdog = enable_watchdog
         self._watchdog = None
+        self._reload_lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     # ---- B-T34: 加载 ----
 
@@ -84,18 +86,20 @@ class SkillManager:
                 self._skills[entry.name] = meta
                 count += 1
 
+        self._loop = asyncio.get_running_loop()
         logger.info("技能加载完成: %d 个", count)
         self._start_watchdog()
         return count
 
     async def reload(self) -> int:
         """
-        重新加载所有技能（热加载用）。
+        重新加载所有技能（热加载用，带并发保护）。
 
         Returns:
             加载后的技能数量
         """
-        return await self.load_all()
+        async with self._reload_lock:
+            return await self.load_all()
 
     # ---- B-T36: 匹配 ----
 
@@ -187,23 +191,28 @@ class SkillManager:
                 def __init__(self, manager: SkillManager):
                     self.manager = manager
 
+                def _dispatch_reload(self):
+                    """安全地将 reload 调度到事件循环。"""
+                    loop = self.manager._loop
+                    if loop and loop.is_running():
+                        asyncio.run_coroutine_threadsafe(
+                            self.manager.reload(), loop
+                        )
+
                 def on_modified(self, event):
                     if event.src_path.endswith("SKILL.md"):
                         logger.info("技能文件变更: %s", event.src_path)
-                        import asyncio
-                        asyncio.ensure_future(self.manager.reload())
+                        self._dispatch_reload()
 
                 def on_created(self, event):
                     if event.src_path.endswith("SKILL.md"):
                         logger.info("技能文件新增: %s", event.src_path)
-                        import asyncio
-                        asyncio.ensure_future(self.manager.reload())
+                        self._dispatch_reload()
 
                 def on_deleted(self, event):
                     if event.src_path.endswith("SKILL.md"):
                         logger.info("技能文件删除: %s", event.src_path)
-                        import asyncio
-                        asyncio.ensure_future(self.manager.reload())
+                        self._dispatch_reload()
 
             self._watchdog = Observer()
             self._watchdog.schedule(
