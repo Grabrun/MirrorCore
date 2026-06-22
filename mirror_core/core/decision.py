@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from mirror_core.core.context import AssembledContext
 from mirror_core.core.state_machine import CompanionState
 
 logger = logging.getLogger("mirror_core.core.decision")
@@ -41,7 +42,7 @@ class DecisionAction(str, Enum):
     REPLY = "REPLY"                         # 生成回复
     REACT_INTERNALLY = "REACT_INTERNALLY"   # 仅更新内部状态
     PUSH_NOTIFICATION = "PUSH_NOTIFICATION" # 主动推送通知
-    LOG_MEMORY = "LOG_MEMORY"               # 写入长期记忆
+    LOG_MEMORY = "LOG_MEMORY"               # 写入长期记忆（暂未使用，预留未来功能）
 
 
 @dataclass
@@ -102,13 +103,11 @@ class DecisionEngine:
         "default": "默认回复",
     }
 
-    def __init__(self):
-        pass
-
     async def decide(
         self,
-        state: CompanionState,
-        emotion: "EmotionalState",  # type: ignore[name-defined]
+        context: Optional[AssembledContext] = None,
+        state: CompanionState = CompanionState.NORMAL,
+        emotion: "EmotionalState" = None,  # type: ignore[name-defined]
         proactive_triggers: Optional[List[str]] = None,
         dependency_score: float = 0.0,
     ) -> Decision:
@@ -118,7 +117,8 @@ class DecisionEngine:
         规则按优先级从高到低逐一评估，命中第一条即返回。
 
         Args:
-            state: 当前伴侣状态 (CompanionState)
+            context: 组装上下文（设计文档 §3.3.5 接口要求，当前规则链未使用）
+            state: 当前伴侣状态 (CompanionState，默认 Normal)
             emotion: 当前情感状态 (EmotionalState)
             proactive_triggers: 主动触发源列表（来自 ProactiveManager，可选）
             dependency_score: 依赖度评分 [0, 1]（来自 SafetyEngine，默认 0）
@@ -126,6 +126,9 @@ class DecisionEngine:
         Returns:
             决策结果 (Decision)
         """
+        if emotion is None:
+            from mirror_core.emotion.engine import EmotionalState
+            emotion = EmotionalState()
         proactive_triggers = proactive_triggers or []
         intensity = _calculate_emotional_intensity(emotion.P, emotion.A)
 

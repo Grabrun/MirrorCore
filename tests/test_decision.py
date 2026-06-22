@@ -362,6 +362,23 @@ class TestDecisionEngine:
         assert isinstance(d.params, dict)
         assert isinstance(d.reason, str)
 
+    @pytest.mark.asyncio
+    async def test_decide_with_context_param(self, engine):
+        """
+        验证 context 参数（设计文档接口要求，F-001）
+        显式传入 None 不应影响决策结果
+        """
+        from mirror_core.core.context import AssembledContext
+        emotion = _make_emotion()
+        ctx = AssembledContext()
+        # 传 context
+        decision = await engine.decide(
+            context=ctx,
+            state=CompanionState.NORMAL,
+            emotion=emotion,
+        )
+        assert decision.action == DecisionAction.REPLY
+
 
 class TestDecisionEngineSadPaths:
     """Sad Path 测试"""
@@ -392,6 +409,11 @@ class TestDecisionEngineSadPaths:
         )
         # 不应崩溃，走默认回复
         assert decision.action == DecisionAction.REPLY
+
+    def test_log_memory_defined_as_reserved(self):
+        """LOG_MEMORY 动作已定义但暂未使用（F-003 预留）"""
+        from mirror_core.core.decision import DecisionAction
+        assert DecisionAction.LOG_MEMORY.value == "LOG_MEMORY"
 
     @pytest.mark.asyncio
     async def test_all_states_produce_decision(self, engine):
