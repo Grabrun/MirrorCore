@@ -300,6 +300,16 @@ class TestSkillManagerWatchdog:
         await mgr.load_all()
         await mgr.stop_watchdog()  # 不应崩溃
 
+    def test_del_stops_watchdog(self, skills_dir):
+        """__del__ 停止 watchdog 不崩溃 (G-001)"""
+        _write_skill(skills_dir, "calming", CALMING_SKILL)
+        mgr = SkillManager(skills_root=skills_dir, enable_watchdog=True)
+        import asyncio
+        asyncio.run(mgr.load_all())
+        assert mgr._watchdog is not None
+        mgr.__del__()  # 模拟 GC
+        assert mgr._watchdog is None
+
 
 class TestSkillManagerSadPaths:
     """Sad Path 测试"""

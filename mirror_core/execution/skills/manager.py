@@ -233,6 +233,16 @@ class SkillManager:
             self._watchdog = None
             logger.debug("技能文件监听已停止")
 
+    def __del__(self) -> None:
+        """析构时确保 watchdog 线程被停止（G-001）。"""
+        if self._watchdog:
+            try:
+                self._watchdog.stop()
+                self._watchdog.join(timeout=2)
+            except Exception:
+                pass
+            self._watchdog = None
+
     # ---- 便捷查询 ----
 
     def get_prompt(self, skill_name: str) -> str:

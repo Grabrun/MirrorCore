@@ -230,6 +230,14 @@ class TestWatchdog:
         scanner.start_watchdog()
         assert scanner._watchdog is None
 
+    def test_del_stops_watchdog(self, emote_dir):
+        """__del__ 停止 watchdog 不崩溃 (G-001)"""
+        scanner = LocalScanner(root=emote_dir)
+        scanner.start_watchdog()
+        assert scanner._watchdog is not None
+        scanner.__del__()  # 模拟 GC
+        assert scanner._watchdog is None
+
 
 class TestSadPaths:
     """边界场景测试"""
