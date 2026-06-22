@@ -9,7 +9,7 @@ B-T30: Provider 工厂方法
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from mirror_core.execution.ai_providers import AIProvider
 

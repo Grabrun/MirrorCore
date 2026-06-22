@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-import time as _time
+import re
 from typing import Any, Dict, List, Optional
 
 from mirror_core.core.safety import SafetyEngine
@@ -143,7 +143,6 @@ class TextGenerator:
         exc_str = str(exc)
         # httpx 错误可能包含 Retry-After 头
         if "retry-after" in exc_str.lower():
-            import re
             match = re.search(r"retry-after[=:]?\s*(\d+)", exc_str, re.IGNORECASE)
             if match:
                 return float(match.group(1))

@@ -8,7 +8,6 @@ B-T31: Anthropic 兼容适配器
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -108,7 +107,7 @@ class AnthropicCompatProvider(AIProvider):
     @staticmethod
     def _convert_messages(
         messages: List[Dict[str, str]],
-    ) -> tuple:
+    ) -> tuple[Optional[str], list]:
         """将 OpenAI 格式转换为 Anthropic 格式。"""
         system_parts = []
         converted = []
