@@ -72,3 +72,11 @@ class AIProvider(ABC):
             浮点数向量列表
         """
         ...
+
+    async def close(self) -> None:
+        """
+        释放资源（可选覆盖）。
+
+        G-001: 默认无操作，子类如有 HTTP 连接池需覆盖此方法。
+        """
+        ...

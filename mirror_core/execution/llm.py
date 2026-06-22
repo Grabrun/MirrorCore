@@ -72,6 +72,18 @@ class TextGenerator:
     def provider(self) -> AIProvider:
         return self._provider
 
+    # ---- G-001: close 传播链 ----
+
+    async def close(self) -> None:
+        """释放 Provider 的 HTTP 连接池。"""
+        await self._provider.close()
+
+    async def __aenter__(self) -> TextGenerator:
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self.close()
+
     # ---- B-T32: LLM 调用 + 重试 + 降级 ----
 
     async def generate_response(

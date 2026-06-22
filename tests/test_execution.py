@@ -287,6 +287,136 @@ class TestPostProcess:
         assert kaomoji in ["(´；ω；`)", "(◞‸◟)"]
 
 
+class TestCloseChain:
+    """G-001: close 传播链测试"""
+
+    def test_close_propagates_to_provider(self):
+        """TextGenerator.close() 应调用 provider.close()"""
+        provider = MagicMock(spec=AIProvider)
+        provider.close = AsyncMock()
+
+        generator = TextGenerator(provider=provider)
+        import asyncio
+        asyncio.run(generator.close())
+
+        provider.close.assert_awaited_once()
+
+    def test_async_context_manager(self):
+        """async with 退出时自动 close"""
+        provider = MagicMock(spec=AIProvider)
+        provider.close = AsyncMock()
+        provider.chat = AsyncMock(return_value=ChatResponse(content="ok"))
+        provider.embedding_dim = 768
+        provider.max_tokens = 4096
+
+        async def run():
+            async with TextGenerator(provider=provider) as gen:
+                assert gen.provider is provider
+            # 退出后应自动 close
+            provider.close.assert_awaited_once()
+
+        import asyncio
+        asyncio.run(run())
+
+
+class TestHttpRequestFormat:
+    """G-002: HTTP 请求格式验证（通过 mock transport）"""
+
+    @pytest.mark.asyncio
+    async def test_openai_chat_request_payload(self):
+        """OpenAI chat() 发送正确的请求体"""
+        import json
+        from unittest.mock import AsyncMock
+
+        # 模拟 httpx 响应
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "你好！"}}],
+            "model": "gpt-4o",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        mock_post = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient.post", mock_post):
+            from mirror_core.execution.ai_providers.openai_compat import (
+                OpenAICompatProvider,
+            )
+            provider = OpenAICompatProvider(api_key="sk-test")
+            result = await provider.chat([{"role": "user", "content": "你好"}])
+
+        # 验证请求体
+        call_kwargs = mock_post.call_args.kwargs
+        payload = call_kwargs["json"]
+        assert payload["model"] == "gpt-4o"
+        assert payload["messages"] == [{"role": "user", "content": "你好"}]
+        assert result.content == "你好！"
+
+    @pytest.mark.asyncio
+    async def test_openai_embed_request_payload(self):
+        """OpenAI embed() 发送正确的请求体"""
+        from unittest.mock import AsyncMock
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [{"embedding": [0.1, 0.2, 0.3]}],
+            "model": "text-embedding-3-small",
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        mock_post = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient.post", mock_post):
+            from mirror_core.execution.ai_providers.openai_compat import (
+                OpenAICompatProvider,
+            )
+            provider = OpenAICompatProvider(api_key="sk-test")
+            result = await provider.embed("测试文本")
+
+        call_kwargs = mock_post.call_args.kwargs
+        payload = call_kwargs["json"]
+        assert payload["model"] == "text-embedding-3-small"
+        assert payload["input"] == "测试文本"
+        assert result == [0.1, 0.2, 0.3]
+
+    @pytest.mark.asyncio
+    async def test_anthropic_chat_request_payload(self):
+        """Anthropic chat() 发送正确的请求体（Messages API 格式）"""
+        from unittest.mock import AsyncMock
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "content": [{"type": "text", "text": "你好！"}],
+            "model": "claude-sonnet-4-20250514",
+            "usage": {"input_tokens": 12, "output_tokens": 8},
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        mock_post = AsyncMock(return_value=mock_response)
+
+        with patch("httpx.AsyncClient.post", mock_post):
+            from mirror_core.execution.ai_providers.anthropic_compat import (
+                AnthropicCompatProvider,
+            )
+            provider = AnthropicCompatProvider(api_key="sk-ant-test")
+            result = await provider.chat([
+                {"role": "system", "content": "你是助手"},
+                {"role": "user", "content": "你好"},
+            ])
+
+        call_kwargs = mock_post.call_args.kwargs
+        payload = call_kwargs["json"]
+        # Anthropic 格式：system 字段在外层，messages 只含 user/assistant
+        assert payload["system"] == "你是助手"
+        assert payload["messages"] == [{"role": "user", "content": "你好"}]
+        assert payload["model"] == "claude-sonnet-4-20250514"
+        assert result.content == "你好！"
+
+
 class TestAnthropicAdapter:
     """Anthropic 适配器测试 (B-T31)"""
 
