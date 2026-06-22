@@ -16,6 +16,7 @@ import time as _time
 from typing import Dict, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 
 from mirror_core.gateway.auth import verify_token
 from mirror_core.gateway.base import ChannelAdapter, MessageContent, RawMessage
@@ -49,10 +50,24 @@ class WebChatAdapter(ChannelAdapter):
         self._ws_registered = False
 
     async def start(self) -> None:
-        """注册 JWT 认证的 WebSocket 端点"""
+        """注册 JWT 认证的 WebSocket 端点 + 静态文件服务（F-T01）"""
         if self._ws_registered:
             logger.warning("WebSocket 端点已注册，忽略重复调用")
             return
+
+        # 挂载 WebChat 前端静态文件
+        import os as _os
+        webchat_dir = _os.path.join(_os.path.dirname(__file__), "..", "..", "webchat")
+        webchat_dir = _os.path.abspath(webchat_dir)
+        if _os.path.isdir(webchat_dir):
+            self._app.mount("/webchat", StaticFiles(directory=webchat_dir, html=True), name="webchat")
+
+            @self._app.get("/")
+            async def root_redirect():
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(url="/webchat/index.html")
+
+            logger.info("WebChat 前端已挂载: %s", webchat_dir)
 
         jwt_secret = self._jwt_secret
 
