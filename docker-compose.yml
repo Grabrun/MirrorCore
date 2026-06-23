@@ -1,0 +1,30 @@
+services:
+  mirror-core:
+    build: .
+    container_name: mirror-core
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./skills:/app/skills
+      - ./docker/nginx:/app/docker/nginx:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - MIRROR_AI_PROVIDER_TYPE=${MIRROR_AI_PROVIDER_TYPE:-openai-compat}
+      - MIRROR_AI_PROVIDER_BASE_URL=${MIRROR_AI_PROVIDER_BASE_URL:-https://api.openai.com/v1}
+      - MIRROR_AI_PROVIDER_API_KEY=${MIRROR_AI_PROVIDER_API_KEY:-}
+      - MIRROR_AI_PROVIDER_MODEL=${MIRROR_AI_PROVIDER_MODEL:-gpt-4o}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - mirror-net
+
+networks:
+  mirror-net:
+    driver: bridge

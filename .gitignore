@@ -3,6 +3,7 @@ data/
 # Data
 .DS_Store
 *.egg-info/
+.env
 .env/
 # IDE
 .idea/

@@ -1,0 +1,38 @@
+[Unit]
+Description=镜核 (Mirror Core) - AI Virtual Companion
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mirror
+Group=mirror
+
+# 工作目录
+WorkingDirectory=/opt/mirror-core
+
+# 环境变量
+EnvironmentFile=-/opt/mirror-core/.env
+Environment=PYTHONUNBUFFERED=1
+
+# 启动命令
+ExecStart=/opt/mirror-core/.venv/bin/mirror run \
+    --config /opt/mirror-core/config \
+    --data /opt/mirror-core/data
+
+# 重启策略
+Restart=on-failure
+RestartSec=5
+
+# 安全
+ProtectSystem=strict
+ReadWritePaths=/opt/mirror-core/data /opt/mirror-core/config
+PrivateTmp=true
+NoNewPrivileges=true
+
+# 资源限制
+LimitNOFILE=65536
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
