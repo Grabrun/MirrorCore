@@ -1,0 +1,15 @@
+# 主动陪伴配置
+enabled: true
+max_per_day: 5
+quiet_hours: [23, 7]
+silence_threshold_days: 3
+frequency: "medium"               # low | medium | high | event_only
+emotion_driven: true
+memory_driven: true
+physiological_metaphor: true
+metaphor_base_probability: 0.25
+metaphor_max_per_night: 2
+quiet_hours_exceptions:
+  - anniversary
+  - mood_improved
+  - night_metaphor

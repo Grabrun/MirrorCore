@@ -1,0 +1,9 @@
+# 记忆系统配置
+short_term_window: 20
+recall_top_k: 5
+fts_top_n: 15
+vec_top_n: 15
+rrf_k: 60
+consolidation_interval: 3600
+forgetting_lambda: 0.01
+embedding_dim: 768

@@ -1,0 +1,16 @@
+# 防火墙与安全配置
+dependency_threshold: 0.7
+ewma_alpha: 0.3
+high_risk_keywords:
+  "自杀": "block"
+  "自残": "block"
+  "违法": "block"
+dependency_keywords:
+  - "只有你懂我"
+  - "没有你不行"
+  - "你是唯一"
+  - "离不开你"
+anchors:
+  - "现实世界中还有很多美好的事物在等着你～"
+  - "我会一直在这里陪伴你，但也要记得照顾好现实中的自己哦"
+  - "生活里有阳光、微风、美食，还有爱你的人们呢 (◕‿◕✿)"

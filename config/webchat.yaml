@@ -1,0 +1,7 @@
+# Web 聊天界面配置
+auth_mode: "token"
+token_expire_days: 7
+secret_file: "data/.jwt_secret"
+cors_allowed_origins:
+  - "http://127.0.0.1:8080"
+  - "http://localhost:8080"
